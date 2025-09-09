@@ -188,6 +188,40 @@
     .modal-body .tablewrap.scroll{ max-height: 58vh; }
   }
 
+  /* Barcode scanner styles */
+  #scanner{
+    position:relative;
+    width:100%;
+    max-width:640px;
+    margin:0 auto;
+    aspect-ratio:3/2;
+    background:#000;
+    overflow:hidden;
+    border-radius: var(--radius);
+  }
+  #scanner video,
+  #scanner canvas{
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+    width:100%;
+    height:100%;
+    object-fit:cover;
+  }
+  #scanner::after{
+    content:'';
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+    width:70%;
+    height:40%;
+    border:2px solid rgba(56,189,248,.8);
+    border-radius: var(--round);
+    box-sizing:border-box;
+  }
+
   /* تحسين العرض على الأجهزة المحمولة */
   @media (max-width:680px){
     .title{ flex-direction:column; align-items:flex-start; gap:var(--space-2); }

@@ -685,7 +685,8 @@
       inputStream: {
         type:'LiveStream',
         target: scanner,
-        constraints:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }
+        constraints:{ facingMode:'environment' },
+        area:{ top:0.3, right:0.85, left:0.15, bottom:0.7 }
       },
       decoder: { readers:['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader'] },
       locate: true
