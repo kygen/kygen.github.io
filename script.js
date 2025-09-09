@@ -3,6 +3,8 @@
   const ADD_NEW_VALUE = '__add_new__';
   const DEFAULT_CATS = ['ألبان','أجبان','بقوليات','حبوب/أرز','معلبات','مكرونة','منظفات','لحوم','دواجن','أسماك'];
   const DEFAULT_LOCS = ['المطبخ','الثلاجة','الفريزر','المخزن'];
+  const LOCAL_BARCODE_DB_URL = 'assets/egyptian-products.json';
+  let localBarcodeDB = {};
 
   /** @type {{items: Array, categories: string[], locations: string[], history: Array}} */
   let state = load() || migrateUp() || { items: [], categories: [...DEFAULT_CATS], locations: [...DEFAULT_LOCS], history: [] };
@@ -99,6 +101,14 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
     }catch(e){ console.warn('Load failed', e); return null; }
+  }
+  async function loadLocalBarcodeDB(){
+    try{
+      const res = await fetch(LOCAL_BARCODE_DB_URL);
+      localBarcodeDB = await res.json();
+    }catch(err){
+      console.warn('Failed to load local barcode DB', err);
+    }
   }
   function migrateUp(){
     try{
@@ -655,12 +665,30 @@
   withdrawModal.addEventListener('click', (e)=>{ if(e.target===withdrawModal) closeWithdrawModal(); });
 
   // ===== Open/Close Scan Modal =====
-  function openScanModal(){
+  async function ensureCameraPermission(){
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
+      stream.getTracks().forEach(t=>t.stop());
+      return true;
+    }catch(err){
+      console.error(err);
+      toast('⚠️ تعذر الوصول للكاميرا — تحقق من الأذونات والسياق الآمن');
+      return false;
+    }
+  }
+  async function openScanModal(){
+    const hasPerm = await ensureCameraPermission();
+    if(!hasPerm) return;
     scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
     document.body.style.overflow='hidden';
     Quagga.init({
-      inputStream: { type:'LiveStream', target: scanner, constraints:{ facingMode:'environment' } },
-      decoder: { readers:['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader'] }
+      inputStream: {
+        type:'LiveStream',
+        target: scanner,
+        constraints:{ facingMode:'environment', width:{ideal:1280}, height:{ideal:720} }
+      },
+      decoder: { readers:['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader'] },
+      locate: true
     }, err=>{
       if(err){ console.error(err); toast('⚠️ تعذر تشغيل الكاميرا'); closeScanModal(); return; }
       Quagga.start();
@@ -684,33 +712,47 @@
     if(existing){
       toast(`📦 تم العثور على الصنف "${existing.name}"`);
       startEdit(existing.id);
-    }else{
-      toast('✅ تم قراءة الباركود. جارٍ جلب البيانات…');
-      try{
-        const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
-        const data = await r.json();
-        if(data.status===1){
-          const product = data.product || {};
-          nameInput.value = product.product_name || code;
-          const cat = product.categories ? product.categories.split(',')[0].trim() : '';
-          buildCategoryOptions(cat);
-          if(cat && categorySelect.value !== cat){
-            categorySelect.value = '__add_new__';
-            customCatInput.value = cat;
-          }
-          ensureCustomFieldVisibility();
-          toast('✅ تم جلب بيانات المنتج. تأكد منها ثم احفظ.');
-        }else{
-          nameInput.value = code;
-          toast('⚠️ لم يتم العثور على تفاصيل المنتج. أدخل البيانات يدويًا.');
-        }
-      }catch(err){
-        console.error(err);
-        nameInput.value = code;
-        toast('⚠️ فشل جلب بيانات المنتج. أدخل البيانات يدويًا.');
-      }
-      nameInput.focus();
+      return;
     }
+    const local = localBarcodeDB[code];
+    if(local){
+      nameInput.value = local.name || code;
+      const cat = local.category || '';
+      buildCategoryOptions(cat);
+      if(cat && categorySelect.value !== cat){
+        categorySelect.value = '__add_new__';
+        customCatInput.value = cat;
+      }
+      ensureCustomFieldVisibility();
+      toast('✅ تم جلب بيانات المنتج المحلي. تأكد منها ثم احفظ.');
+      nameInput.focus();
+      return;
+    }
+    toast('✅ تم قراءة الباركود. جارٍ جلب البيانات…');
+    try{
+      const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${code}.json`);
+      const data = await r.json();
+      if(data.status===1){
+        const product = data.product || {};
+        nameInput.value = product.product_name || code;
+        const cat = product.categories ? product.categories.split(',')[0].trim() : '';
+        buildCategoryOptions(cat);
+        if(cat && categorySelect.value !== cat){
+          categorySelect.value = '__add_new__';
+          customCatInput.value = cat;
+        }
+        ensureCustomFieldVisibility();
+        toast('✅ تم جلب بيانات المنتج. تأكد منها ثم احفظ.');
+      }else{
+        nameInput.value = code;
+        toast('⚠️ لم يتم العثور على تفاصيل المنتج. أدخل البيانات يدويًا.');
+      }
+    }catch(err){
+      console.error(err);
+      nameInput.value = code;
+      toast('⚠️ فشل جلب بيانات المنتج. أدخل البيانات يدويًا.');
+    }
+    nameInput.focus();
   });
 
   // ESC closes any open modal
@@ -783,6 +825,7 @@
   function firstRender(){
     initSort(itemsTable, sortState, render);
     initSort(lowTable, lowSortState, renderLowList);
+    loadLocalBarcodeDB();
     buildCategoryOptions('');
     buildLocationOptions('');
     ensureCustomFieldVisibility();
