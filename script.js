@@ -681,19 +681,36 @@
     if(!hasPerm) return;
     scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
     document.body.style.overflow='hidden';
-    Quagga.init({
+
+    const baseConfig = {
       inputStream: {
-        type:'LiveStream',
+        type: 'LiveStream',
         target: scanner,
-        constraints:{ facingMode:'environment' },
-        area:{ top:0.3, right:0.85, left:0.15, bottom:0.7 }
+        constraints: { facingMode: 'environment' },
+        area: { top: 0.3, right: 0.85, left: 0.15, bottom: 0.7 }
       },
-      decoder: { readers:['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader'] },
+      decoder: { readers: ['code_128_reader', 'ean_reader', 'ean_8_reader', 'upc_reader', 'upc_e_reader'] },
       locate: true
-    }, err=>{
-      if(err){ console.error(err); toast('⚠️ تعذر تشغيل الكاميرا'); closeScanModal(); return; }
-      Quagga.start();
-    });
+    };
+
+    function initScanner(cfg){
+      Quagga.init(cfg, err => {
+        if(err){
+          console.error(err);
+          // retry with workers disabled if first attempt fails (e.g. due to cross-origin)
+          if(cfg.numOfWorkers !== 0){
+            initScanner({ ...cfg, numOfWorkers: 0 });
+            return;
+          }
+          toast('⚠️ تعذر تشغيل الكاميرا');
+          closeScanModal();
+          return;
+        }
+        Quagga.start();
+      });
+    }
+
+    initScanner({ ...baseConfig, numOfWorkers: navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 0 });
   }
   function closeScanModal(){
     try{ Quagga.stop(); }catch(e){}
