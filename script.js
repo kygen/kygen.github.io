@@ -65,6 +65,10 @@
   const scanner = $('#scanner');
   const closeScanBtn = $('#closeScanBtn');
 
+  let lastScanCode = null;
+  let scanConfirmations = 0;
+  const SCAN_CONFIRMATION_COUNT = 3;
+
   // Lists UI
   const itemsWrap = $('#itemsWrap');
   const itemsBody = $('#itemsBody');
@@ -705,6 +709,9 @@
     scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
     document.body.style.overflow='hidden';
 
+    lastScanCode = null;
+    scanConfirmations = 0;
+
     const baseConfig = {
       inputStream: {
         type: 'LiveStream',
@@ -816,6 +823,15 @@
   Quagga.onDetected(async (res)=>{
     const code = res?.codeResult?.code;
     if(!code) return;
+    if(code === lastScanCode){
+      scanConfirmations++;
+    }else{
+      lastScanCode = code;
+      scanConfirmations = 1;
+    }
+    if(scanConfirmations < SCAN_CONFIRMATION_COUNT) return;
+    lastScanCode = null;
+    scanConfirmations = 0;
     closeScanModal();
     await fetchProductData(code);
   });
