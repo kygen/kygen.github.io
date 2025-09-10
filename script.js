@@ -63,6 +63,7 @@
   const scanner = $('#scanner');
   const closeScanBtn = $('#closeScanBtn');
   let scanStream = null;
+  let scanLoopActive = false;
 
   // Lists UI
   const itemsWrap = $('#itemsWrap');
@@ -686,6 +687,28 @@
       video.srcObject = scanStream;
       scanner.appendChild(video);
       await video.play().catch(()=>{});
+
+      if('BarcodeDetector' in window){
+        const detector = new BarcodeDetector({formats:['ean_13','upc_a','upc_e','code_128']});
+        scanLoopActive = true;
+        const detect = async ()=>{
+          if(!scanLoopActive) return;
+          try{
+            const codes = await detector.detect(video);
+            if(codes.length>0){
+              scanLoopActive = false;
+              const code = codes[0].rawValue;
+              closeScanModal();
+              lookupProduct(code);
+              return;
+            }
+          }catch(err){ console.error(err); }
+          requestAnimationFrame(detect);
+        };
+        requestAnimationFrame(detect);
+      }else{
+        toast('⚠️ جهازك لا يدعم قراءة الباركود');
+      }
     }catch(err){
       console.error(err);
       toast('⚠️ تعذر تشغيل الكاميرا');
@@ -693,6 +716,7 @@
     }
   }
   function closeScanModal(){
+    scanLoopActive = false;
     if(scanStream){
       scanStream.getTracks().forEach(t=>t.stop());
       scanStream = null;
@@ -700,6 +724,18 @@
     scanner.innerHTML='';
     scanModal.classList.remove('show'); scanModal.setAttribute('aria-hidden','true');
     document.body.style.overflow='';
+  }
+  async function lookupProduct(code){
+    try{
+      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
+      const data = await res.json();
+      const title = data?.items?.[0]?.title;
+      if(title) nameInput.value = title;
+      else toast('⚠️ لم يتم العثور على اسم الصنف');
+    }catch(err){
+      console.error(err);
+      toast('⚠️ فشل جلب معلومات الباركود');
+    }
   }
   scanBtn.addEventListener('click', openScanModal);
   closeScanBtn.addEventListener('click', closeScanModal);
