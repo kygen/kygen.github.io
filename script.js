@@ -6,6 +6,30 @@
   const LOCAL_BARCODE_DB_URL = 'assets/egyptian-products.json';
   let localBarcodeDB = {};
 
+  // Safe ID generator with fallback for browsers lacking crypto.randomUUID
+  function generateId(){
+    if(typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx';
+    let i = 0;
+    const random = (typeof crypto !== 'undefined' && crypto.getRandomValues) ? crypto.getRandomValues(new Uint8Array(16)) : null;
+    return template.replace(/[xy]/g, c => {
+      let r = random ? random[i++] & 15 : Math.random()*16;
+      if(c === 'y') r = (r & 0x3) | 0x8;
+      return r.toString(16);
+    });
+  }
+
+  // Check for localStorage availability
+  function storageAvailable(){
+    try{
+      const test='__test__';
+      localStorage.setItem(test,test);
+      localStorage.removeItem(test);
+      return true;
+    }catch(e){ return false; }
+  }
+  const canStore = storageAvailable();
+
   /** @type {{items: Array, categories: string[], locations: string[], history: Array}} */
   let state = load() || migrateUp() || { items: [], categories: [...DEFAULT_CATS], locations: [...DEFAULT_LOCS], history: [] };
   state.locations = state.locations || [...DEFAULT_LOCS];
@@ -93,10 +117,17 @@
 
   // ===== Storage / Migration =====
   function save(){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    if(!canStore){ toast('⚠️ لا يمكن حفظ البيانات — التخزين غير متاح'); render(); return; }
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }catch(e){
+      console.warn('Save failed', e);
+      toast('⚠️ فشل حفظ البيانات');
+    }
     render();
   }
   function load(){
+    if(!canStore) return null;
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : null;
@@ -108,6 +139,7 @@
       localBarcodeDB = await res.json();
     }catch(err){
       console.warn('Failed to load local barcode DB', err);
+      toast('⚠️ فشل تحميل قاعدة الباركود المحلية');
     }
   }
   function migrateUp(){
@@ -432,7 +464,7 @@
     if(data.location && !state.locations.map(normalize).includes(normalize(data.location))){
       state.locations.push(data.location); state.locations = dedupeCats(state.locations);
     }
-    data.id = crypto.randomUUID(); state.items.push(data); save(); toast('✅ تم إضافة الصنف بنجاح'); return true;
+    data.id = generateId(); state.items.push(data); save(); toast('✅ تم إضافة الصنف بنجاح'); return true;
   }
   function updateItem(id, patch){
     const idx = state.items.findIndex(i=>i.id===id); if(idx<0) return;
@@ -507,7 +539,7 @@
     amount = roundQty(amount, item); const newQty = roundQty(item.quantity - amount, item);
     updateItem(item.id, { quantity: newQty });
     state.history = state.history || [];
-    state.history.unshift({ id: crypto.randomUUID(), itemId: item.id, name: item.name, unit: displayUnit(item), amount, after: newQty, at: new Date().toISOString() });
+    state.history.unshift({ id: generateId(), itemId: item.id, name: item.name, unit: displayUnit(item), amount, after: newQty, at: new Date().toISOString() });
     if(state.history.length>500) state.history.length=500;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
     historyPage = 1; render(); selectWithdrawItemById(item.id);
@@ -666,6 +698,10 @@
 
   // ===== Open/Close Scan Modal =====
   async function ensureCameraPermission(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      toast('⚠️ المتصفح لا يدعم الكاميرا');
+      return false;
+    }
     try{
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
       stream.getTracks().forEach(t=>t.stop());
@@ -677,6 +713,10 @@
     }
   }
   async function openScanModal(){
+    if(location.protocol !== 'https:' && location.hostname !== 'localhost'){
+      toast('⚠️ يجب فتح الموقع عبر HTTPS لتشغيل الكاميرا');
+      return;
+    }
     const hasPerm = await ensureCameraPermission();
     if(!hasPerm) return;
     scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
@@ -815,7 +855,7 @@
       const text=await file.text(); const data=JSON.parse(text);
       if(!data || !Array.isArray(data.items)) throw new Error('صيغة غير صحيحة');
       data.items = data.items.map(i=>({
-        id:i.id||crypto.randomUUID(), name:(i.name||'').toString(), category:i.category||'', location:i.location||'',
+        id:i.id||generateId(), name:(i.name||'').toString(), category:i.category||'', location:i.location||'',
         unitType:(i.unitType==='weight')?'weight':'piece', quantity:Number(i.quantity||0),
         weightUnit:(i.unitType==='weight')?(i.weightUnit||'كجم'):null,
         threshold:(i.threshold===undefined||i.threshold===null||i.threshold==='')?null:Number(i.threshold),
@@ -850,6 +890,7 @@
     ensureLocationFieldVisibility();
     quantityChangedUI();
     dateAddedInput.value = todayLocalISO(); render();
+    if(!canStore) toast('⚠️ التخزين المحلي غير متاح؛ لن يتم حفظ البيانات بعد إغلاق الصفحة');
   }
   firstRender();
 })();
