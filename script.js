@@ -670,6 +670,25 @@
   closeWithdrawBtn.addEventListener('click', closeWithdrawModal);
   withdrawModal.addEventListener('click', (e)=>{ if(e.target===withdrawModal) closeWithdrawModal(); });
 
+  // Lookup product name by UPC barcode
+  async function lookupProductName(barcode){
+    try{
+      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`);
+      if(!res.ok) throw new Error('bad status');
+      const data = await res.json();
+      const title = data && data.items && data.items[0] && data.items[0].title;
+      if(title){
+        nameInput.value = title;
+        return;
+      }
+      toast('⚠️ لم يتم العثور على اسم المنتج');
+    }catch(err){
+      console.error(err);
+      toast('⚠️ فشل جلب اسم المنتج');
+    }
+    nameInput.value = barcode;
+  }
+
   // ===== Open/Close Scan Modal =====
   async function openScanModal(){
     if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
@@ -699,8 +718,7 @@
               scanLoopActive = false;
               const code = codes[0].rawValue;
               closeScanModal();
-              // Temporarily disable product lookup; fill the scanned code instead
-              nameInput.value = code;
+              lookupProductName(code);
               return;
             }
           }catch(err){ console.error(err); }
