@@ -699,7 +699,8 @@
               scanLoopActive = false;
               const code = codes[0].rawValue;
               closeScanModal();
-              lookupProduct(code);
+              // Temporarily disable product lookup; fill the scanned code instead
+              nameInput.value = code;
               return;
             }
           }catch(err){ console.error(err); }
@@ -724,18 +725,6 @@
     scanner.innerHTML='';
     scanModal.classList.remove('show'); scanModal.setAttribute('aria-hidden','true');
     document.body.style.overflow='';
-  }
-  async function lookupProduct(code){
-    try{
-      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
-      const data = await res.json();
-      const title = data?.items?.[0]?.title;
-      if(title) nameInput.value = title;
-      else toast('⚠️ لم يتم العثور على اسم الصنف');
-    }catch(err){
-      console.error(err);
-      toast('⚠️ فشل جلب معلومات الباركود');
-    }
   }
   scanBtn.addEventListener('click', openScanModal);
   closeScanBtn.addEventListener('click', closeScanModal);
