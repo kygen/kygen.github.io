@@ -6,6 +6,12 @@
   const LOCAL_BARCODE_DB_URL = 'assets/egyptian-products.json';
   let localBarcodeDB = {};
 
+  // ===== NEW: scanner state guards =====
+  let scanModalOpenedAt = 0;
+  let detectionCounts = new Map();
+  let acceptedScan = false;
+  let initializingScanner = false;
+
   // Safe ID generator with fallback for browsers lacking crypto.randomUUID
   function generateId(){
     if(typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -64,10 +70,6 @@
   const scanModal = $('#scanModal');
   const scanner = $('#scanner');
   const closeScanBtn = $('#closeScanBtn');
-
-  let lastScanCode = null;
-  let scanConfirmations = 0;
-  const SCAN_CONFIRMATION_COUNT = 3;
 
   // Lists UI
   const itemsWrap = $('#itemsWrap');
@@ -439,7 +441,6 @@
     dateAddedInput.value = item.dateAdded ? item.dateAdded.slice(0,10) : todayLocalISO();
     barcodeInput.value = item.barcode || '';
     quantityChangedUI(); nameInput.focus();
-    // لو فتحنا من نافذة النواقص، نقفلها عشان نركز في التعديل
     if(lowModal.classList.contains('show')) closeLowModal();
   }
   function addItem(data){
@@ -595,13 +596,11 @@
   $('#resetBtn').addEventListener('click', clearForm);
 
   // ===== Search / Filter FIX =====
-  // تشغيل البحث الفوري + فلترة النوع + ESC لمسح البحث
   searchInput.addEventListener('input', render);
   filterUnit.addEventListener('change', render);
   filterLocation.addEventListener('change', render);
   searchInput.addEventListener('keydown', (e)=>{ if(e.key==='Escape'){ searchInput.value=''; render(); }});
 
-  // default date today
   dateAddedInput.value = todayLocalISO();
 
   $('#itemForm').addEventListener('submit', (e)=>{
@@ -700,57 +699,129 @@
   closeWithdrawBtn.addEventListener('click', closeWithdrawModal);
   withdrawModal.addEventListener('click', (e)=>{ if(e.target===withdrawModal) closeWithdrawModal(); });
 
-  // ===== Open/Close Scan Modal =====
-  async function openScanModal(){
-    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-      toast('⚠️ المتصفح لا يدعم الكاميرا');
-      return;
-    }
-    scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
-    document.body.style.overflow='hidden';
+  // ======== SCANNER (Quagga) — Improved ========
+  function scannerMessage(html){
+    scanner.innerHTML = `
+      <div style="display:grid;place-items:center;height:100%;padding:16px;text-align:center">
+        <div class="note" style="font-size:14px;opacity:.95">${html}</div>
+        <div style="margin-top:12px">
+          <button id="retryScannerBtn" class="btn">إعادة المحاولة</button>
+        </div>
+      </div>`;
+    const retry = $('#retryScannerBtn');
+    if(retry) retry.addEventListener('click', startScanner);
+  }
 
-    lastScanCode = null;
-    scanConfirmations = 0;
+  async function preflightPermission(){
+    try{
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }});
+      // stop immediately; Quagga will open its own stream
+      tmp.getTracks().forEach(t=>t.stop());
+      return true;
+    }catch(err){
+      console.warn('getUserMedia preflight failed', err);
+      scannerMessage('لا يمكن تشغيل الكاميرا. من فضلك اسمح بالوصول للكاميرا من إعدادات المتصفح ثم اضغط "إعادة المحاولة".');
+      return false;
+    }
+  }
+
+  function startScanner(){
+    if(initializingScanner) return;
+    initializingScanner = true;
+    scanner.innerHTML = ''; // clear any previous message/overlay
 
     const baseConfig = {
       inputStream: {
         type: 'LiveStream',
         target: scanner,
-        constraints: { facingMode: 'environment' },
-        area: { top: 0.3, right: 0.85, left: 0.15, bottom: 0.7 }
+        constraints: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        },
+        area: { top: 0.30, right: 0.85, left: 0.15, bottom: 0.70 }
       },
-      decoder: { readers: ['code_128_reader', 'ean_reader', 'ean_8_reader', 'upc_reader', 'upc_e_reader'] },
+      decoder: {
+        readers: ['code_128_reader','ean_reader','ean_8_reader','upc_reader','upc_e_reader']
+      },
       locate: true
     };
 
     function initScanner(cfg){
       Quagga.init(cfg, err => {
         if(err){
-          console.error(err);
-          // retry with workers disabled if first attempt fails (e.g. due to cross-origin)
+          console.error('Quagga.init error', err);
+          // retry with workers disabled
           if(cfg.numOfWorkers !== 0){
             initScanner({ ...cfg, numOfWorkers: 0 });
             return;
           }
-          toast('⚠️ تعذر تشغيل الكاميرا');
-          closeScanModal();
+          initializingScanner = false;
+          scannerMessage('تعذر تشغيل الكاميرا على هذا الجهاز. جرّب متصفحًا آخر أو اضغط "إعادة المحاولة".');
           return;
         }
-        Quagga.start();
+        try{ Quagga.start(); }catch(e){ console.error(e); }
+        initializingScanner = false;
+        // draw a small hint overlay
+        if(!scanner.querySelector('[data-scan-hint]')){
+          const hint = document.createElement('div');
+          hint.setAttribute('data-scan-hint','');
+          hint.style.position='absolute'; hint.style.bottom='10px'; hint.style.left='50%';
+          hint.style.transform='translateX(-50%)';
+          hint.style.background='rgba(0,0,0,.35)'; hint.style.padding='6px 10px';
+          hint.style.borderRadius='10px'; hint.style.fontSize='12px';
+          hint.textContent='وجّه الباركود داخل الإطار حتى يتم التقاطه…';
+          scanner.appendChild(hint);
+        }
       });
     }
 
-    initScanner({ ...baseConfig, numOfWorkers: navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 0 });
+    // first attempt with workers based on cores
+    const workers = (navigator.hardwareConcurrency ? Math.min(navigator.hardwareConcurrency, 4) : 0);
+    initScanner({ ...baseConfig, numOfWorkers: workers });
   }
+
+  async function openScanModal(){
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      toast('⚠️ المتصفح لا يدعم الكاميرا');
+      return;
+    }
+    scanModalOpenedAt = Date.now();
+    acceptedScan = false;
+    detectionCounts.clear();
+
+    // show modal
+    scanModal.classList.add('show'); scanModal.setAttribute('aria-hidden','false');
+    document.body.style.overflow='hidden';
+
+    // avoid accidental backdrop-close right after opening (tap ghost)
+    // (handled in backdrop click listener below)
+
+    // preflight permission (no close on failure)
+    const ok = await preflightPermission();
+    if(ok){
+      startScanner();
+    }
+  }
+
   function closeScanModal(){
     try{ Quagga.stop(); }catch(e){}
     scanModal.classList.remove('show'); scanModal.setAttribute('aria-hidden','true');
     document.body.style.overflow='';
   }
+
   scanBtn.addEventListener('click', openScanModal);
   closeScanBtn.addEventListener('click', closeScanModal);
-  scanModal.addEventListener('click', (e)=>{ if(e.target===scanModal) closeScanModal(); });
 
+  // Prevent immediate accidental close right after opening (400ms guard)
+  scanModal.addEventListener('click', (e)=>{
+    if(e.target===scanModal){
+      if(Date.now() - scanModalOpenedAt < 400) return; // ignore early ghost click
+      closeScanModal();
+    }
+  });
+
+  // ===== Fetch product data (unchanged APIs) =====
   async function fetchProductData(code){
     barcodeInput.value = code;
     const existing = state.items.find(i=>i.barcode === code);
@@ -820,20 +891,29 @@
     nameInput.focus();
   }
 
+  // ===== Robust onDetected with multi-hit confirmation =====
+  // Require the SAME code 3 times before accepting (reduces false positives and prevents instant close)
   Quagga.onDetected(async (res)=>{
     const code = res?.codeResult?.code;
-    if(!code) return;
-    if(code === lastScanCode){
-      scanConfirmations++;
-    }else{
-      lastScanCode = code;
-      scanConfirmations = 1;
+    if(!code || acceptedScan) return;
+
+    // Ignore detections in the first 600ms after opening (avoid stale/ghost frames)
+    if(Date.now() - scanModalOpenedAt < 600) return;
+
+    const key = String(code).trim();
+    const hits = (detectionCounts.get(key) || 0) + 1;
+    detectionCounts.set(key, hits);
+
+    // console.log('Detected', key, hits);
+
+    if(hits >= 3){
+      acceptedScan = true;
+      closeScanModal();
+      await fetchProductData(key);
+      // reset buffer for next time
+      detectionCounts.clear();
+      acceptedScan = false;
     }
-    if(scanConfirmations < SCAN_CONFIRMATION_COUNT) return;
-    lastScanCode = null;
-    scanConfirmations = 0;
-    closeScanModal();
-    await fetchProductData(code);
   });
 
   // ESC closes any open modal
@@ -917,4 +997,3 @@
   }
   firstRender();
 })();
-
