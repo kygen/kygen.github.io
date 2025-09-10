@@ -682,10 +682,32 @@
   async function lookupProductName(barcode){
     try{
       const code = normalizeBarcode(barcode);
-      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
-      if(!res.ok) throw new Error('bad status');
-      const data = await res.json();
-      const title = data && data.items && data.items[0] && data.items[0].title;
+      const apiUrl = `https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`;
+
+      async function fetchTitle(url){
+        const res = await fetch(url);
+        if(!res.ok) return null;
+        const data = await res.json();
+        return data && data.items && data.items[0] && data.items[0].title;
+      }
+
+      // Try direct request first; on failure or missing title, fall back to a CORS proxy
+      let title;
+      try{
+        title = await fetchTitle(apiUrl);
+      }catch(err){
+        console.warn('Direct lookup failed', err);
+      }
+      if(!title){
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(apiUrl)}`;
+        try{
+          title = await fetchTitle(proxyUrl);
+        }catch(err){
+          console.error(err);
+          toast('⚠️ فشل جلب اسم المنتج');
+          return;
+        }
+      }
       if(title){
         nameInput.value = title;
         return;
