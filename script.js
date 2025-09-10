@@ -702,15 +702,30 @@
       toast('⚠️ المتصفح لا يدعم الكاميرا');
       return false;
     }
-    try{
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'environment' } });
-      stream.getTracks().forEach(t=>t.stop());
-      return true;
-    }catch(err){
-      console.error(err);
-      toast('⚠️ تعذر الوصول للكاميرا — تحقق من الأذونات والسياق الآمن');
-      return false;
+    // Avoid opening and immediately closing the camera stream because some
+    // browsers keep the hardware locked for a short period afterwards which
+    // causes Quagga to fail with "Could not start video source". Instead we
+    // rely on the Permissions API (when available) to inspect the current
+    // state without grabbing the camera.
+    if(navigator.permissions && navigator.permissions.query){
+      try{
+        const status = await navigator.permissions.query({ name: 'camera' });
+        if(status.state === 'denied'){
+          toast('⚠️ تم رفض إذن الكاميرا — تحقق من إعدادات المتصفح');
+          return false;
+        }
+        // states 'granted' and 'prompt' fall through to Quagga which will
+        // handle prompting the user if needed.
+        return true;
+      }catch(err){
+        console.warn('camera permission check failed', err);
+        // if the Permissions API is unsupported or errors, proceed and let
+        // Quagga request access; any failure will be handled there.
+        return true;
+      }
     }
+    // If Permissions API is unavailable, proceed and let Quagga request access
+    return true;
   }
   async function openScanModal(){
     if(location.protocol !== 'https:' && location.hostname !== 'localhost'){
