@@ -58,10 +58,11 @@
   const thresholdUnitBadge = $('#thresholdUnitBadge');
   const dateAddedInput = $('#dateAdded');
   const editHint = $('#editHint');
-  const scanBtn = $('#scanBtn');
-  const scanModal = $('#scanModal');
-  const scanner = $('#scanner');
-  const closeScanBtn = $('#closeScanBtn');
+    const scanBtn = $('#scanBtn');
+    const scanModal = $('#scanModal');
+    const scanner = $('#scanner');
+    const scanCodeDisplay = $('#scanCodeDisplay');
+    const closeScanBtn = $('#closeScanBtn');
   let scanStream = null;
   let scanLoopActive = false;
 
@@ -670,10 +671,18 @@
   closeWithdrawBtn.addEventListener('click', closeWithdrawModal);
   withdrawModal.addEventListener('click', (e)=>{ if(e.target===withdrawModal) closeWithdrawModal(); });
 
+  function normalizeBarcode(code){
+    const digits = (code||'').toString().replace(/\D/g,'');
+    if(digits.length === 13 && digits.startsWith('0')) return digits.slice(1);
+    if(digits.length < 12) return digits.padStart(12,'0');
+    return digits;
+  }
+
   // Lookup product name by UPC barcode
   async function lookupProductName(barcode){
     try{
-      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(barcode)}`);
+      const code = normalizeBarcode(barcode);
+      const res = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${encodeURIComponent(code)}`);
       if(!res.ok) throw new Error('bad status');
       const data = await res.json();
       const title = data && data.items && data.items[0] && data.items[0].title;
@@ -686,7 +695,6 @@
       console.error(err);
       toast('⚠️ فشل جلب اسم المنتج');
     }
-    nameInput.value = barcode;
   }
 
   // ===== Open/Close Scan Modal =====
@@ -700,6 +708,7 @@
     try{
       scanStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       scanner.innerHTML = '';
+      scanCodeDisplay.textContent = '';
       const video = document.createElement('video');
       video.autoplay = true;
       video.playsInline = true;
@@ -716,9 +725,12 @@
             const codes = await detector.detect(video);
             if(codes.length>0){
               scanLoopActive = false;
-              const code = codes[0].rawValue;
+              const raw = codes[0].rawValue;
+              const normalized = normalizeBarcode(raw);
+              scanCodeDisplay.textContent = normalized;
+              nameInput.value = '';
+              await lookupProductName(normalized);
               closeScanModal();
-              lookupProductName(code);
               return;
             }
           }catch(err){ console.error(err); }
@@ -741,6 +753,7 @@
       scanStream = null;
     }
     scanner.innerHTML='';
+    scanCodeDisplay.textContent = '';
     scanModal.classList.remove('show'); scanModal.setAttribute('aria-hidden','true');
     document.body.style.overflow='';
   }

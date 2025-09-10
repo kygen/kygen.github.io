@@ -222,6 +222,16 @@
     box-sizing:border-box;
   }
 
+  #scanCodeDisplay{
+    margin-top: var(--space-2);
+    text-align:center;
+    font-size: var(--fs-18);
+    font-variant-numeric: tabular-nums;
+    letter-spacing:2px;
+    color: var(--accent);
+    direction:ltr;
+  }
+
   /* تحسين العرض على الأجهزة المحمولة */
   @media (max-width:680px){
     .title{ flex-direction:column; align-items:flex-start; gap:var(--space-2); }
