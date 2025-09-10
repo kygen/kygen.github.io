@@ -761,11 +761,8 @@
   closeScanBtn.addEventListener('click', closeScanModal);
   scanModal.addEventListener('click', (e)=>{ if(e.target===scanModal) closeScanModal(); });
 
-  Quagga.onDetected(async (res)=>{
-    const code = res?.codeResult?.code;
-    if(!code) return;
+  async function fetchProductData(code){
     barcodeInput.value = code;
-    closeScanModal();
     const existing = state.items.find(i=>i.barcode === code);
     if(existing){
       toast(`📦 تم العثور على الصنف "${existing.name}"`);
@@ -801,6 +798,26 @@
         }
         ensureCustomFieldVisibility();
         toast('✅ تم جلب بيانات المنتج. تأكد منها ثم احفظ.');
+        nameInput.focus();
+        return;
+      }
+    }catch(err){
+      console.error(err);
+    }
+    try{
+      const r2 = await fetch(`https://api.upcitemdb.com/prod/trial/lookup?upc=${code}`);
+      const data2 = await r2.json();
+      if(data2 && Array.isArray(data2.items) && data2.items.length){
+        const prod = data2.items[0];
+        nameInput.value = prod.title || code;
+        const cat = prod.category || '';
+        buildCategoryOptions(cat);
+        if(cat && categorySelect.value !== cat){
+          categorySelect.value = '__add_new__';
+          customCatInput.value = cat;
+        }
+        ensureCustomFieldVisibility();
+        toast('✅ تم جلب بيانات المنتج. تأكد منها ثم احفظ.');
       }else{
         nameInput.value = code;
         toast('⚠️ لم يتم العثور على تفاصيل المنتج. أدخل البيانات يدويًا.');
@@ -811,6 +828,13 @@
       toast('⚠️ فشل جلب بيانات المنتج. أدخل البيانات يدويًا.');
     }
     nameInput.focus();
+  }
+
+  Quagga.onDetected(async (res)=>{
+    const code = res?.codeResult?.code;
+    if(!code) return;
+    closeScanModal();
+    await fetchProductData(code);
   });
 
   // ESC closes any open modal
